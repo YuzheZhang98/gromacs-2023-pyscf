@@ -41,6 +41,7 @@
  */
 #ifndef GMX_APPLIED_FORCES_QMMMFORCEPROVIDER_H
 #define GMX_APPLIED_FORCES_QMMMFORCEPROVIDER_H
+#define PY_SSIZE_T_CLEAN
 
 #include "gromacs/domdec/localatomset.h"
 #include "gromacs/mdtypes/forceoutput.h"
@@ -96,6 +97,10 @@ private:
      * \param[in] cr connection record structure
      */
     void initCP2KForceEnvironment(const t_commrec& cr);
+    void initPython(const t_commrec& cr);
+    void forceRecorder(ForceProviderOutput*      fOutput,
+                       std::vector<double>       pyscfForce,
+                       const ForceProviderInput& fInput);
 
     const QMMMParameters& parameters_;
     const LocalAtomSet&   qmAtoms_;
@@ -108,6 +113,9 @@ private:
 
     //! Flag wether initCP2KForceEnvironment() has been called already
     bool isCp2kLibraryInitialized_ = false;
+
+    //! Flag wether initPython() has been called already
+    bool isPythonInitialized_ = false;
 
     //! CP2K force environment handle
     force_env_t force_env_ = -1;

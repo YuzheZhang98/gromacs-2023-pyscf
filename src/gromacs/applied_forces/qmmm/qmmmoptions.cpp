@@ -43,6 +43,7 @@
 
 #include "qmmmoptions.h"
 
+#include <iostream>
 #include <map>
 
 #include "gromacs/fileio/warninp.h"
@@ -91,8 +92,8 @@ void QMMMMdpTransformFromString(IKeyValueTreeTransformRules* rules,
                                 const std::string&           optionTag)
 {
     rules->addRule()
-            .from<std::string>("/" + c_qmmmCP2KModuleName + "-" + optionTag)
-            .to<ToType>("/" + c_qmmmCP2KModuleName + "/" + optionTag)
+            .from<std::string>("/" + c_qmmmModuleName + "-" + optionTag)
+            .to<ToType>("/" + c_qmmmModuleName + "/" + optionTag)
             .transformWith(transformationFunction);
 }
 
@@ -111,7 +112,7 @@ void QMMMMdpTransformFromString(IKeyValueTreeTransformRules* rules,
 template<class OptionType>
 void addQMMMMdpOutputValue(KeyValueTreeObjectBuilder* builder, const OptionType& option, const std::string& optionTag)
 {
-    builder->addValue<OptionType>(c_qmmmCP2KModuleName + "-" + optionTag, option);
+    builder->addValue<OptionType>(c_qmmmModuleName + "-" + optionTag, option);
 }
 
 /*! \brief Helper to declare mdp output comments.
@@ -128,7 +129,7 @@ void addQMMMMdpOutputValueComment(KeyValueTreeObjectBuilder* builder,
                                   const std::string&         comment,
                                   const std::string&         optionTag)
 {
-    builder->addValue<std::string>("comment-" + c_qmmmCP2KModuleName + "-" + optionTag, comment);
+    builder->addValue<std::string>("comment-" + c_qmmmModuleName + "-" + optionTag, comment);
 }
 
 } // namespace
@@ -181,7 +182,7 @@ void QMMMOptions::buildMdpOutput(KeyValueTreeObjectBuilder* builder) const
 
 void QMMMOptions::initMdpOptions(IOptionsContainerWithSections* options)
 {
-    auto section = options->addSection(OptionSection(c_qmmmCP2KModuleName.c_str()));
+    auto section = options->addSection(OptionSection(c_qmmmModuleName.c_str()));
 
     section.addOption(BooleanOption(c_activeTag_.c_str()).store(&parameters_.active_));
     section.addOption(StringOption(c_qmGroupTag_.c_str()).store(&groupString_));
@@ -308,7 +309,7 @@ void QMMMOptions::processTprFilename(const MdRunInputFilename& tprFilename)
 
     parameters_.qmFileNameBase_ =
             stripExtension(std::filesystem::path(tprFilename.mdRunFilename_).filename())
-                    .append("_cp2k")
+                    .append("_pyscf")
                     .u8string();
 }
 
@@ -449,7 +450,7 @@ void QMMMOptions::setQMExternalInputFile(const QMInputFileName& qmExternalInputF
             // If parameters_.qmMethod_ != INPUT then user should not provide external input file
             GMX_THROW(InconsistentInputError(
                     "External CP2K input file has been provided with -qmi option, but "
-                    + c_qmmmCP2KModuleName + "-" + c_qmMethodTag_ + " is not INPUT"));
+                    + c_qmmmModuleName + "-" + c_qmMethodTag_ + " is not INPUT"));
         }
 
         // Exit if we dont need to process external input file
@@ -459,7 +460,7 @@ void QMMMOptions::setQMExternalInputFile(const QMInputFileName& qmExternalInputF
     // Case where user should provide external input file with -qmi option
     if (parameters_.qmMethod_ == QMMMQMMethod::INPUT && !qmExternalInputFileName.hasQMInputFileName_)
     {
-        GMX_THROW(InconsistentInputError(c_qmmmCP2KModuleName + "-" + c_qmMethodTag_
+        GMX_THROW(InconsistentInputError(c_qmmmModuleName + "-" + c_qmMethodTag_
                                          + " = INPUT requested, but external CP2K "
                                            "input file is not provided with -qmi option"));
     }
@@ -482,7 +483,7 @@ void QMMMOptions::processCoordinates(const CoordinatesAndBoxPreprocessed& coord)
 
     // Generate pdb file with point charges for CP2K
     parameters_.qmPdb_ = inpGen.generateCP2KPdb();
-
+    std::cout << parameters_.qmPdb_ << std::endl;
     // In case parameters_.qmMethod_ != INPUT we should generate CP2K Input, QM box and translation
     if (parameters_.qmMethod_ != QMMMQMMethod::INPUT)
     {
@@ -498,7 +499,7 @@ void QMMMOptions::processCoordinates(const CoordinatesAndBoxPreprocessed& coord)
                     "For stable CP2K SCF convergence all simulation box vectors should be "
                     ">= 1 nm. Please consider to increase simulation box or provide custom CP2K "
                     "input using "
-                    + c_qmmmCP2KModuleName + "-" + c_qmMethodTag_ + " = INPUT"));
+                    + c_qmmmModuleName + "-" + c_qmMethodTag_ + " = INPUT"));
         }
 
         parameters_.qmInput_ = inpGen.generateCP2KInput();
@@ -535,7 +536,7 @@ void QMMMOptions::modifyQMMMTopology(gmx_mtop_t* mtop)
     real qmC = static_cast<real>(parameters_.qmCharge_);
 
     // Print message to the log about performed modifications
-    std::string msg = "\nQMMM Interface with CP2K is active, topology was modified!\n";
+    std::string msg = "\nQMMM Interface with PySCF is active, topology was modified!\n";
 
     msg += formatString(
             "Number of QM atoms: %d\nNumber of MM atoms: %d\n", topInfo.numQMAtoms, topInfo.numMMAtoms);
@@ -585,6 +586,13 @@ void QMMMOptions::modifyQMMMTopology(gmx_mtop_t* mtop)
     if (topInfo.numLinkBonds > 0)
     {
         msg += formatString("QM-MM broken bonds found: %d\n", topInfo.numLinkBonds);
+        for (int i = 0; i < parameters_.link_.size(); i++)
+        {
+            msg += formatString("%dth broken bond is between index %ld (QM) and %ld (MM)\n",
+                                i + 1,
+                                parameters_.link_[i].qm,
+                                parameters_.link_[i].mm);
+        }
     }
 
     appendLog(msg + "\n");
@@ -616,7 +624,7 @@ void QMMMOptions::writeInternalParametersToKvt(KeyValueTreeObjectBuilder treeBui
 {
     // Write QM atoms index
     auto GroupIndexAdder =
-            treeBuilder.addUniformArray<std::int64_t>(c_qmmmCP2KModuleName + "-" + c_qmGroupTag_);
+            treeBuilder.addUniformArray<std::int64_t>(c_qmmmModuleName + "-" + c_qmGroupTag_);
     for (const auto& indexValue : parameters_.qmIndices_)
     {
         GroupIndexAdder.addValue(indexValue);
@@ -624,7 +632,7 @@ void QMMMOptions::writeInternalParametersToKvt(KeyValueTreeObjectBuilder treeBui
 
     // Write MM atoms index
     GroupIndexAdder =
-            treeBuilder.addUniformArray<std::int64_t>(c_qmmmCP2KModuleName + "-" + c_mmGroupTag_);
+            treeBuilder.addUniformArray<std::int64_t>(c_qmmmModuleName + "-" + c_mmGroupTag_);
     for (const auto& indexValue : parameters_.mmIndices_)
     {
         GroupIndexAdder.addValue(indexValue);
@@ -632,32 +640,32 @@ void QMMMOptions::writeInternalParametersToKvt(KeyValueTreeObjectBuilder treeBui
 
     // Write atoms numbers
     GroupIndexAdder =
-            treeBuilder.addUniformArray<std::int64_t>(c_qmmmCP2KModuleName + "-" + c_atomNumbersTag_);
+            treeBuilder.addUniformArray<std::int64_t>(c_qmmmModuleName + "-" + c_atomNumbersTag_);
     for (const auto& indexValue : parameters_.atomNumbers_)
     {
         GroupIndexAdder.addValue(indexValue);
     }
 
     // Write link
-    GroupIndexAdder = treeBuilder.addUniformArray<std::int64_t>(c_qmmmCP2KModuleName + "-" + c_qmLinkTag_);
+    GroupIndexAdder = treeBuilder.addUniformArray<std::int64_t>(c_qmmmModuleName + "-" + c_qmLinkTag_);
     for (const auto& indexValue : parameters_.link_)
     {
         GroupIndexAdder.addValue(indexValue.qm);
     }
-    GroupIndexAdder = treeBuilder.addUniformArray<std::int64_t>(c_qmmmCP2KModuleName + "-" + c_mmLinkTag_);
+    GroupIndexAdder = treeBuilder.addUniformArray<std::int64_t>(c_qmmmModuleName + "-" + c_mmLinkTag_);
     for (const auto& indexValue : parameters_.link_)
     {
         GroupIndexAdder.addValue(indexValue.mm);
     }
 
     // Write CP2K input file content
-    treeBuilder.addValue<std::string>(c_qmmmCP2KModuleName + "-" + c_qmInputTag_, parameters_.qmInput_);
+    treeBuilder.addValue<std::string>(c_qmmmModuleName + "-" + c_qmInputTag_, parameters_.qmInput_);
 
     // Write CP2K pdb file content
-    treeBuilder.addValue<std::string>(c_qmmmCP2KModuleName + "-" + c_qmPdbTag_, parameters_.qmPdb_);
+    treeBuilder.addValue<std::string>(c_qmmmModuleName + "-" + c_qmPdbTag_, parameters_.qmPdb_);
 
     // Write QM box matrix
-    auto DoubleArrayAdder = treeBuilder.addUniformArray<double>(c_qmmmCP2KModuleName + "-" + c_qmBoxTag_);
+    auto DoubleArrayAdder = treeBuilder.addUniformArray<double>(c_qmmmModuleName + "-" + c_qmBoxTag_);
     for (int i = 0; i < DIM; i++)
     {
         for (int j = 0; j < DIM; j++)
@@ -667,7 +675,7 @@ void QMMMOptions::writeInternalParametersToKvt(KeyValueTreeObjectBuilder treeBui
     }
 
     // Write QM Translation vector
-    DoubleArrayAdder = treeBuilder.addUniformArray<double>(c_qmmmCP2KModuleName + "-" + c_qmTransTag_);
+    DoubleArrayAdder = treeBuilder.addUniformArray<double>(c_qmmmModuleName + "-" + c_qmTransTag_);
     for (int i = 0; i < DIM; i++)
     {
         DoubleArrayAdder.addValue(static_cast<double>(parameters_.qmTrans_[i]));
@@ -683,13 +691,13 @@ void QMMMOptions::readInternalParametersFromKvt(const KeyValueTreeObject& tree)
     }
 
     // Try to read QM atoms index
-    if (!tree.keyExists(c_qmmmCP2KModuleName + "-" + c_qmGroupTag_))
+    if (!tree.keyExists(c_qmmmModuleName + "-" + c_qmGroupTag_))
     {
         GMX_THROW(InconsistentInputError(
                 "Cannot find QM atoms index vector required for QM/MM simulation.\nThis could be "
                 "caused by incompatible or corrupted tpr input file."));
     }
-    auto kvtIndexArray = tree[c_qmmmCP2KModuleName + "-" + c_qmGroupTag_].asArray().values();
+    auto kvtIndexArray = tree[c_qmmmModuleName + "-" + c_qmGroupTag_].asArray().values();
     parameters_.qmIndices_.resize(kvtIndexArray.size());
     std::transform(std::begin(kvtIndexArray),
                    std::end(kvtIndexArray),
@@ -697,13 +705,13 @@ void QMMMOptions::readInternalParametersFromKvt(const KeyValueTreeObject& tree)
                    [](const KeyValueTreeValue& val) { return val.cast<std::int64_t>(); });
 
     // Try to read MM atoms index
-    if (!tree.keyExists(c_qmmmCP2KModuleName + "-" + c_mmGroupTag_))
+    if (!tree.keyExists(c_qmmmModuleName + "-" + c_mmGroupTag_))
     {
         GMX_THROW(InconsistentInputError(
                 "Cannot find MM atoms index vector required for QM/MM simulation.\nThis could be "
                 "caused by incompatible or corrupted tpr input file."));
     }
-    kvtIndexArray = tree[c_qmmmCP2KModuleName + "-" + c_mmGroupTag_].asArray().values();
+    kvtIndexArray = tree[c_qmmmModuleName + "-" + c_mmGroupTag_].asArray().values();
     parameters_.mmIndices_.resize(kvtIndexArray.size());
     std::transform(std::begin(kvtIndexArray),
                    std::end(kvtIndexArray),
@@ -711,13 +719,13 @@ void QMMMOptions::readInternalParametersFromKvt(const KeyValueTreeObject& tree)
                    [](const KeyValueTreeValue& val) { return val.cast<std::int64_t>(); });
 
     // Try to read atoms numbers
-    if (!tree.keyExists(c_qmmmCP2KModuleName + "-" + c_atomNumbersTag_))
+    if (!tree.keyExists(c_qmmmModuleName + "-" + c_atomNumbersTag_))
     {
         GMX_THROW(InconsistentInputError(
                 "Cannot find Atom Numbers vector required for QM/MM simulation.\nThis could be "
                 "caused by incompatible or corrupted tpr input file."));
     }
-    kvtIndexArray = tree[c_qmmmCP2KModuleName + "-" + c_atomNumbersTag_].asArray().values();
+    kvtIndexArray = tree[c_qmmmModuleName + "-" + c_atomNumbersTag_].asArray().values();
     parameters_.atomNumbers_.resize(kvtIndexArray.size());
     std::transform(std::begin(kvtIndexArray),
                    std::end(kvtIndexArray),
@@ -728,26 +736,26 @@ void QMMMOptions::readInternalParametersFromKvt(const KeyValueTreeObject& tree)
     std::vector<index> qmLink;
     std::vector<index> mmLink;
 
-    if (!tree.keyExists(c_qmmmCP2KModuleName + "-" + c_qmLinkTag_))
+    if (!tree.keyExists(c_qmmmModuleName + "-" + c_qmLinkTag_))
     {
         GMX_THROW(InconsistentInputError(
                 "Cannot find QM Link Frontier vector required for QM/MM simulation.\nThis could be "
                 "caused by incompatible or corrupted tpr input file."));
     }
-    kvtIndexArray = tree[c_qmmmCP2KModuleName + "-" + c_qmLinkTag_].asArray().values();
+    kvtIndexArray = tree[c_qmmmModuleName + "-" + c_qmLinkTag_].asArray().values();
     qmLink.resize(kvtIndexArray.size());
     std::transform(std::begin(kvtIndexArray),
                    std::end(kvtIndexArray),
                    std::begin(qmLink),
                    [](const KeyValueTreeValue& val) { return val.cast<std::int64_t>(); });
 
-    if (!tree.keyExists(c_qmmmCP2KModuleName + "-" + c_mmLinkTag_))
+    if (!tree.keyExists(c_qmmmModuleName + "-" + c_mmLinkTag_))
     {
         GMX_THROW(InconsistentInputError(
                 "Cannot find MM Link Frontier vector required for QM/MM simulation.\nThis could be "
                 "caused by incompatible or corrupted tpr input file."));
     }
-    kvtIndexArray = tree[c_qmmmCP2KModuleName + "-" + c_mmLinkTag_].asArray().values();
+    kvtIndexArray = tree[c_qmmmModuleName + "-" + c_mmLinkTag_].asArray().values();
     mmLink.resize(kvtIndexArray.size());
     std::transform(std::begin(kvtIndexArray),
                    std::end(kvtIndexArray),
@@ -762,30 +770,30 @@ void QMMMOptions::readInternalParametersFromKvt(const KeyValueTreeObject& tree)
     }
 
     // Try to read CP2K input and pdb strings from *.tpr
-    if (!tree.keyExists(c_qmmmCP2KModuleName + "-" + c_qmInputTag_))
+    if (!tree.keyExists(c_qmmmModuleName + "-" + c_qmInputTag_))
     {
         GMX_THROW(InconsistentInputError(
                 "Cannot find CP2K input string required for QM/MM simulation.\nThis could be "
                 "caused by incompatible or corrupted tpr input file."));
     }
-    parameters_.qmInput_ = tree[c_qmmmCP2KModuleName + "-" + c_qmInputTag_].cast<std::string>();
+    parameters_.qmInput_ = tree[c_qmmmModuleName + "-" + c_qmInputTag_].cast<std::string>();
 
-    if (!tree.keyExists(c_qmmmCP2KModuleName + "-" + c_qmPdbTag_))
+    if (!tree.keyExists(c_qmmmModuleName + "-" + c_qmPdbTag_))
     {
         GMX_THROW(InconsistentInputError(
                 "Cannot find CP2K pdb string required for QM/MM simulation.\nThis could be "
                 "caused by incompatible or corrupted tpr input file."));
     }
-    parameters_.qmPdb_ = tree[c_qmmmCP2KModuleName + "-" + c_qmPdbTag_].cast<std::string>();
+    parameters_.qmPdb_ = tree[c_qmmmModuleName + "-" + c_qmPdbTag_].cast<std::string>();
 
     // Try to read QM box
-    if (!tree.keyExists(c_qmmmCP2KModuleName + "-" + c_qmBoxTag_))
+    if (!tree.keyExists(c_qmmmModuleName + "-" + c_qmBoxTag_))
     {
         GMX_THROW(InconsistentInputError(
                 "Cannot find QM box matrix required for QM/MM simulation.\nThis could be "
                 "caused by incompatible or corrupted tpr input file."));
     }
-    auto kvtDoubleArray = tree[c_qmmmCP2KModuleName + "-" + c_qmBoxTag_].asArray().values();
+    auto kvtDoubleArray = tree[c_qmmmModuleName + "-" + c_qmBoxTag_].asArray().values();
     for (int i = 0; i < DIM; i++)
     {
         for (int j = 0; j < DIM; j++)
@@ -795,13 +803,13 @@ void QMMMOptions::readInternalParametersFromKvt(const KeyValueTreeObject& tree)
     }
 
     // Try to read QM translation vector
-    if (!tree.keyExists(c_qmmmCP2KModuleName + "-" + c_qmTransTag_))
+    if (!tree.keyExists(c_qmmmModuleName + "-" + c_qmTransTag_))
     {
         GMX_THROW(InconsistentInputError(
                 "Cannot find QM subsystem centering information for QM/MM simulation.\nThis could "
                 "be caused by incompatible or corrupted tpr input file."));
     }
-    kvtDoubleArray = tree[c_qmmmCP2KModuleName + "-" + c_qmTransTag_].asArray().values();
+    kvtDoubleArray = tree[c_qmmmModuleName + "-" + c_qmTransTag_].asArray().values();
     for (int i = 0; i < DIM; i++)
     {
         parameters_.qmTrans_[i] = static_cast<real>(kvtDoubleArray[i].cast<double>());

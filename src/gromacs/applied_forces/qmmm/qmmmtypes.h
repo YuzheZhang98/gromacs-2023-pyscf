@@ -128,6 +128,8 @@ struct QMMMParameters
     std::string qmInput_;
     //! String containing PDB file for CP2K input which can be stored inside *.tpr
     std::string qmPdb_;
+    //! String containing PDB file for CP2K update which can be stored inside *.tpr
+    std::string qmPdbUpdate_;
     //! Matrix that contains vectors defining QM box
     matrix qmBox_;
     //! Translation vector to center QM subsystem inside the QM Box

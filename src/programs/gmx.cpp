@@ -45,18 +45,44 @@
 #include "gromacs/utility/exceptions.h"
 
 #include "legacymodules.h"
+#define PY_SSIZE_T_CLEAN
+#include <Python.h>
+#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+#include "numpy/arrayobject.h"
 
 int main(int argc, char* argv[])
 {
     gmx::CommandLineProgramContext& context = gmx::initForCommandLine(&argc, &argv);
     try
     {
+        wchar_t* program = Py_DecodeLocale(argv[0], NULL);
+        if (program == NULL)
+        {
+            fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
+            exit(1);
+        }
+
+        Py_SetProgramName(program);
+        Py_Initialize();
+        import_array();
+        if (PyErr_Occurred())
+        {
+            fprintf(stderr, "Failed to import numpy Python module(s).\n");
+            exit(1);
+        }
+        assert(PyArray_API);
         gmx::CommandLineModuleManager manager("gmx", &context);
         registerTrajectoryAnalysisModules(&manager);
         registerLegacyModules(&manager);
         manager.addHelpTopic(gmx::createSelectionHelpTopic());
         int rc = manager.run(argc, argv);
         gmx::finalizeForCommandLine();
+        PyErr_Print();
+        if (Py_FinalizeEx() < 0)
+        {
+            exit(120);
+        }
+        PyMem_RawFree(program);
         return rc;
     }
     catch (const std::exception& ex)

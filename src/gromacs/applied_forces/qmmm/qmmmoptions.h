@@ -48,6 +48,8 @@
 
 #include "qmmmtypes.h"
 
+#define GMX_PYSCF 1
+
 struct gmx_mtop_t;
 class WarningHandler;
 
@@ -63,7 +65,11 @@ struct CoordinatesAndBoxPreprocessed;
 struct QMInputFileName;
 
 //! Tag with name of the QMMM with CP2K MDModule
-static const std::string c_qmmmCP2KModuleName = "qmmm-cp2k";
+#if GMX_PYSCF
+static const std::string c_qmmmModuleName = "qmmm-pyscf";
+#else
+static const std::string c_qmmmModuleName = "qmmm-cp2k";
+#endif
 
 /*! \internal
  * \brief Input data storage for QM/MM
