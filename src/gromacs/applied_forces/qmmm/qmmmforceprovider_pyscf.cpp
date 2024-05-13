@@ -163,7 +163,7 @@ void QMMMForceProvider::calculateForces(const ForceProviderInput& fInput, ForceP
         pFuncCalc = PyObject_GetAttrString(pModule, "qmmmCalc");
         if (!pFuncCalc)
         {
-            GMX_THROW(gmx::APIError("qmmmCalc load failed!\n"));
+            GMX_THROW(gmx::InternalError("qmmmCalc load failed!\n"));
         }
         fprintf(stderr, "qmmmCalc load successful!\n");
     }
@@ -173,7 +173,7 @@ void QMMMForceProvider::calculateForces(const ForceProviderInput& fInput, ForceP
         pFuncCalc = PyObject_GetAttrString(pModule, "qmCalc");
         if (!pFuncCalc)
         {
-            GMX_THROW(gmx::APIError("qmCalc load failed!\n"));
+            GMX_THROW(gmx::InternalError("qmCalc load failed!\n"));
         }
         fprintf(stderr, "qmCalc load successful!\n");
     }
