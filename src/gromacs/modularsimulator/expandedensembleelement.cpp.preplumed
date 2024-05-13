@@ -61,15 +61,13 @@ void ExpandedEnsembleElement::apply(Step step, bool doLambdaStep, bool doLog)
 {
     if (doLambdaStep)
     {
-        real realFepState = 0; /* PLUMED */ 
         const int newFepState =
                 expandedEnsembleUpdateLambdaState(fplog_,
                                                   inputrec_,
                                                   energyData_->enerdata(),
                                                   freeEnergyPerturbationData_->currentFEPState(),
                                                   dfhist_.get(),
-                                                  step,
-                                                  &realFepState); /* PLUMED */
+                                                  step);
         // Set new state at next step
         fepStateSetting_->setNewState(newFepState, step + 1);
     }

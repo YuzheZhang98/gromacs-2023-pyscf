@@ -69,7 +69,6 @@
 #include "gromacs/gmxlib/nrnb.h"
 #include "gromacs/gpu_utils/device_stream_manager.h"
 #include "gromacs/gpu_utils/gpu_utils.h"
-#include "gromacs/math/units.h"
 #include "gromacs/imd/imd.h"
 #include "gromacs/listed_forces/listed_forces.h"
 #include "gromacs/math/boxmatrix.h"
@@ -155,16 +154,6 @@
 #include "replicaexchange.h"
 #include "shellfc.h"
 
-/* PLUMED */
-#include "../../../Plumed.h"
-extern int    plumedswitch;
-extern plumed plumedmain;
-/* END PLUMED */
-
-/* PLUMED HREX */
-extern int plumed_hrex;
-/* END PLUMED HREX */
-
 using gmx::SimulationSignaller;
 
 void gmx::LegacySimulator::do_md()
@@ -191,7 +180,7 @@ void gmx::LegacySimulator::do_md()
     gmx_repl_ex_t     repl_ex = nullptr;
     gmx_global_stat_t gstat;
     gmx_shellfc_t*    shellfc;
-    gmx_bool          bSumEkinhOld, bDoReplEx, bDoReplExPrev, bExchanged, bNeedRepartition;
+    gmx_bool          bSumEkinhOld, bDoReplEx, bExchanged, bNeedRepartition;
     gmx_bool          bTrotter;
     real              dvdl_constr;
     std::vector<RVec> cbuf;
@@ -211,14 +200,6 @@ void gmx::LegacySimulator::do_md()
     bool bInteractiveMDstep = false;
 
     SimulationSignals signals;
-    /* PLUMED */
-    int plumedNeedsEnergy=0;
-    int plumedWantsToStop=0;
-    matrix plumed_vir;
-    real lambdaForce=0;
-    real realFepState=0;
-    /* END PLUMED */
-
     // Most global communnication stages don't propagate mdrun
     // signals, and will use this object to achieve that.
     SimulationSignaller nullSignaller(nullptr, nullptr, nullptr, false, false);
@@ -301,7 +282,7 @@ void gmx::LegacySimulator::do_md()
         // the propagation of such signals must take place between
         // simulations, not just within simulations.
         // TODO: Make algorithm initializers set these flags.
-        simulationsShareState = useReplicaExchange || usingEnsembleRestraints || awhUsesMultiSim || (plumedswitch && ms); // PLUMED hack, if we have multiple sim and plumed we usually want them to be in sync 
+        simulationsShareState = useReplicaExchange || usingEnsembleRestraints || awhUsesMultiSim;
 
         // With AWH with bias sharing each simulation uses an non-shared, but identical, Hamiltonian
         simulationsShareHamiltonian = useReplicaExchange || usingEnsembleRestraints;
@@ -788,53 +769,6 @@ void gmx::LegacySimulator::do_md()
         fprintf(fplog, "\n");
     }
 
-    /* PLUMED */
-    if(plumedswitch){
-      /* detect plumed API version */
-      int pversion=0;
-      plumed_cmd(plumedmain,"getApiVersion",&pversion);
-      /* setting kbT is only implemented with api>1) */
-      real kbT=ir->opts.ref_t[0]*gmx::c_boltz;
-      if(pversion>1) plumed_cmd(plumedmain,"setKbT",&kbT);
-      if(pversion>2){
-        int res=1;
-        if( (startingBehavior != StartingBehavior::NewSimulation) ) plumed_cmd(plumedmain,"setRestart",&res);
-      }
-
-      if(isMultiSim(ms)) {
-        if(MAIN(cr)) plumed_cmd(plumedmain,"GREX setMPIIntercomm",&ms->mainRanksComm_);
-        if(PAR(cr)){
-          if(haveDDAtomOrdering(*cr)) {
-            plumed_cmd(plumedmain,"GREX setMPIIntracomm",&cr->dd->mpi_comm_all);
-          }else{
-            plumed_cmd(plumedmain,"GREX setMPIIntracomm",&cr->mpi_comm_mysim);
-          }
-        }
-        plumed_cmd(plumedmain,"GREX init",nullptr);
-      }
-      if(PAR(cr)){
-        if(haveDDAtomOrdering(*cr)) {
-          plumed_cmd(plumedmain,"setMPIComm",&cr->dd->mpi_comm_all);
-        }
-      }
-      plumed_cmd(plumedmain,"setNatoms",top_global.natoms);
-      plumed_cmd(plumedmain,"setMDEngine","gromacs");
-      plumed_cmd(plumedmain,"setLog",fplog);
-      real real_delta_t=ir->delta_t;
-      plumed_cmd(plumedmain,"setTimestep",&real_delta_t);
-      plumed_cmd(plumedmain,"init",nullptr);
-
-      if(haveDDAtomOrdering(*cr)) {
-        int nat_home = dd_numHomeAtoms(*cr->dd);
-        plumed_cmd(plumedmain,"setAtomsNlocal",&nat_home);
-        plumed_cmd(plumedmain,"setAtomsGatindex",cr->dd->globalAtomIndices.data());
-      }
-      realFepState = state->fep_state;
-      plumed_cmd(plumedmain, "setExtraCV lambda", &realFepState);
-      plumed_cmd(plumedmain, "setExtraCVForce lambda", &lambdaForce);
-    }
-    /* END PLUMED */
-
     walltime_accounting_start_time(walltime_accounting);
     wallcycle_start(wcycle, WallCycleCounter::Run);
     print_start(fplog, cr, walltime_accounting, "mdrun");
@@ -851,7 +785,6 @@ void gmx::LegacySimulator::do_md()
     bSumEkinhOld     = FALSE;
     bExchanged       = FALSE;
     bNeedRepartition = FALSE;
-    bDoReplEx        = FALSE;
 
     auto stopHandler = stopHandlerBuilder->getStopHandlerMD(
             compat::not_null<SimulationSignal*>(&signals[eglsSTOPCOND]),
@@ -959,7 +892,6 @@ void gmx::LegacySimulator::do_md()
                            && (!bFirstStep));
         }
 
-        bDoReplExPrev = bDoReplEx;
         bDoReplEx = (useReplicaExchange && (step > 0) && !bLastStep
                      && do_per_step(step, replExParams.exchangeInterval));
 
@@ -1072,13 +1004,6 @@ void gmx::LegacySimulator::do_md()
                                     do_verbose && !bPMETunePrinting);
                 upd.updateAfterPartition(state->natoms, md->cFREEZE, md->cTC, md->cACC);
                 fr->longRangeNonbondeds->updateAfterPartition(*md);
-                /* PLUMED */
-                if(plumedswitch){
-                  int nat_home = dd_numHomeAtoms(*cr->dd);
-                  plumed_cmd(plumedmain,"setAtomsNlocal",&nat_home);
-                  plumed_cmd(plumedmain,"setAtomsGatindex",cr->dd->globalAtomIndices.data());
-                }
-                /* END PLUMED */
             }
         }
 
@@ -1134,144 +1059,7 @@ void gmx::LegacySimulator::do_md()
         }
         clear_mat(force_vir);
 
-        /* PLUMED HREX */
-        gmx_bool bHREX = bDoReplEx && plumed_hrex;
-
-        if (plumedswitch && bHREX) {
-          // gmx_enerdata_t *hrex_enerd;
-          int nlambda = enerd->foreignLambdaTerms.numLambdas();
-          gmx_enerdata_t hrex_enerd(enerd->grpp.nener, nlambda == 0 ? 0 : nlambda - 1);
-          int repl  = -1;
-          int nrepl = -1;
-          if (MAIN(cr)){
-            repl  = replica_exchange_get_repl(repl_ex);
-            nrepl = replica_exchange_get_nrepl(repl_ex);
-          }
-
-          if (haveDDAtomOrdering(*cr)) {
-            dd_collect_state(cr->dd,state,state_global);
-          } else {
-            copy_state_serial(state, state_global);
-          }
-
-          if(MAIN(cr)){
-            if(repl%2==step/replExParams.exchangeInterval%2){
-              if(repl-1>=0) exchange_state(ms,repl-1,state_global);
-            }else{
-              if(repl+1<nrepl) exchange_state(ms,repl+1,state_global);
-            }
-          }
-          if (!haveDDAtomOrdering(*cr)) {
-            copy_state_serial(state_global, state);
-          }
-          if (haveDDAtomOrdering(*cr)) {
-              dd_partition_system(fplog,
-                                  mdlog,
-                                  step,
-                                  cr,
-                                  TRUE,
-                                  state_global,
-                                  top_global,
-                                  *ir,
-                                  imdSession,
-                                  pull_work,
-                                  state,
-                                  &f,
-                                  mdAtoms,
-                                  top,
-                                  fr,
-                                  vsite,
-                                  constr,
-                                  nrnb,
-                                  wcycle,
-                                  do_verbose && !bPMETunePrinting);
-          }
-          do_force(fplog,
-                   cr,
-                   ms,
-                   *ir,
-                   awh.get(),
-                   enforcedRotation,
-                   imdSession,
-                   pull_work,
-                   step,
-                   nrnb,
-                   wcycle,
-                   top,
-                   state->box,
-                   state->x.arrayRefWithPadding(),
-                   &state->hist,
-                   &f.view(),
-                   force_vir,
-                   md,
-                   &hrex_enerd,
-                   state->lambda,
-                   fr,
-                   runScheduleWork,
-                   vsite,
-                   mu_tot,
-                   t,
-                   ed ? ed->getLegacyED() : nullptr,
-                   fr->longRangeNonbondeds.get(),
-                   GMX_FORCE_STATECHANGED |
-                   GMX_FORCE_DYNAMICBOX |
-                   GMX_FORCE_ALLFORCES |
-                   GMX_FORCE_VIRIAL |
-                   GMX_FORCE_ENERGY |
-                   GMX_FORCE_DHDL |
-                   GMX_FORCE_NS,
-                   ddBalanceRegionHandler);
-
-          plumed_cmd(plumedmain,"GREX cacheLocalUSwap",&(&hrex_enerd)->term[F_EPOT]);
-
-          /* exchange back */
-          if (haveDDAtomOrdering(*cr)) {
-            dd_collect_state(cr->dd,state,state_global);
-          } else {
-            copy_state_serial(state, state_global);
-          }
-
-          if(MAIN(cr)){
-            if(repl%2==step/replExParams.exchangeInterval%2){
-              if(repl-1>=0) exchange_state(ms,repl-1,state_global);
-            }else{
-              if(repl+1<nrepl) exchange_state(ms,repl+1,state_global);
-            }
-          }
-
-          if (!haveDDAtomOrdering(*cr)) {
-            copy_state_serial(state_global, state);
-          }
-          if (haveDDAtomOrdering(*cr)) {
-              dd_partition_system(fplog,
-                                  mdlog,
-                                  step,
-                                  cr,
-                                  TRUE,
-                                  state_global,
-                                  top_global,
-                                  *ir,
-                                  imdSession,
-                                  pull_work,
-                                  state,
-                                  &f,
-                                  mdAtoms,
-                                  top,
-                                  fr,
-                                  vsite,
-                                  constr,
-                                  nrnb,
-                                  wcycle,
-                                  do_verbose && !bPMETunePrinting);
-            int nat_home = dd_numHomeAtoms(*cr->dd);
-            plumed_cmd(plumedmain,"setAtomsNlocal",&nat_home);
-            plumed_cmd(plumedmain,"setAtomsGatindex",cr->dd->globalAtomIndices.data());
-          }
-          bNS=true;
-        }
-        /* END PLUMED HREX */
-
-        checkpointHandler->decideIfCheckpointingThisStep(bNS||bDoReplExPrev, bFirstStep, bLastStep);
+        checkpointHandler->decideIfCheckpointingThisStep(bNS, bFirstStep, bLastStep);
 
         /* Determine the energy and pressure:
          * at nstcalcenergy steps and at energy output steps (set below).
@@ -1427,28 +1215,6 @@ void gmx::LegacySimulator::do_md()
                  * This is parallellized as well, and does communication too.
                  * Check comments in sim_util.c
                  */
-
-             /* PLUMED */
-            plumedNeedsEnergy=0;
-            if(plumedswitch){
-              int pversion=0;
-              plumed_cmd(plumedmain,"getApiVersion",&pversion);
-              long int lstep=step; plumed_cmd(plumedmain,"setStepLong",&lstep);
-              plumed_cmd(plumedmain,"setPositions",&state->x[0][0]);
-              plumed_cmd(plumedmain,"setMasses",&md->massT[0]);
-              plumed_cmd(plumedmain,"setCharges",&md->chargeA[0]);
-              plumed_cmd(plumedmain,"setBox",&state->box[0][0]);
-              plumed_cmd(plumedmain,"prepareCalc",nullptr);
-              plumed_cmd(plumedmain,"setStopFlag",&plumedWantsToStop);
-              int checkp=0; if(checkpointHandler->isCheckpointingStep()) checkp=1;
-              if(pversion>3) plumed_cmd(plumedmain,"doCheckPoint",&checkp);
-              plumed_cmd(plumedmain,"setForces",&f.view().force()[0][0]);
-              plumed_cmd(plumedmain,"isEnergyNeeded",&plumedNeedsEnergy);
-              if(plumedNeedsEnergy) force_flags |= GMX_FORCE_ENERGY | GMX_FORCE_VIRIAL;
-              clear_mat(plumed_vir);
-              plumed_cmd(plumedmain,"setVirial",&plumed_vir[0][0]);
-            }
-            /* END PLUMED */
                 do_force(fplog,
                          cr,
                          ms,
@@ -1478,22 +1244,6 @@ void gmx::LegacySimulator::do_md()
                          fr->longRangeNonbondeds.get(),
                          (bNS ? GMX_FORCE_NS : 0) | force_flags,
                          ddBalanceRegionHandler);
-            /* PLUMED */
-            if(plumedswitch){
-              if(plumedNeedsEnergy){
-                msmul(force_vir,2.0,plumed_vir);
-                plumed_cmd(plumedmain,"setEnergy",&enerd->term[F_EPOT]);
-                plumed_cmd(plumedmain,"performCalc",nullptr);
-                msmul(plumed_vir,0.5,force_vir);
-              } else {
-                msmul(plumed_vir,0.5,plumed_vir);
-                m_add(force_vir,plumed_vir,force_vir);
-              }
-              if(bDoReplEx) plumed_cmd(plumedmain,"GREX savePositions",nullptr);
-              if(plumedWantsToStop) bLastStep = true;
-              if(bHREX) plumed_cmd(plumedmain,"GREX cacheLocalUNow",&enerd->term[F_EPOT]);
-            }
-            /* END PLUMED */
             }
 
             // VV integrators do not need the following velocity half step
@@ -1569,7 +1319,6 @@ void gmx::LegacySimulator::do_md()
                                                   state->dfhist,
                                                   step,
                                                   state->v.rvec_array(),
-                                              &realFepState,
                                                   md->homenr,
                                                   md->cTC);
                 /* history is maintained in state->dfhist, but state_global is what is sent to trajectory and log output */
@@ -2221,10 +1970,6 @@ void gmx::LegacySimulator::do_md()
             /* Have to do this part _after_ outputting the logfile and the edr file */
             /* Gets written into the state at the beginning of next loop*/
             state->fep_state = lamnew;
-            if(plumedswitch)
-            {
-                realFepState = state->fep_state;
-            }
         }
         else if (ir->bDoAwh && awh->needForeignEnergyDifferences(step))
         {

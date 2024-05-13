@@ -599,7 +599,6 @@ bool decideWhetherToUseGpuForUpdate(const bool           isDomainDecomposition,
                                     const bool           haveFrozenAtoms,
                                     const bool           useModularSimulator,
                                     const bool           doRerun,
-                                    const bool           usePlumed, /* PLUMED */
                                     const gmx::MDLogger& mdlog)
 {
 
@@ -738,12 +737,7 @@ bool decideWhetherToUseGpuForUpdate(const bool           isDomainDecomposition,
     {
         errorMessage += "Re-run is not supported.\n";
     }
-    /* PLUMED */
-    if (usePlumed)
-    {
-        errorMessage += "PLUMED is not supported.\n";
-    }
-    /* PLUMED */
+
     // TODO: F_CONSTRNC is only unsupported, because isNumCoupledConstraintsSupported()
     // does not support it, the actual CUDA LINCS code does support it
     if (gmx_mtop_ftype_count(mtop, F_CONSTRNC) > 0)

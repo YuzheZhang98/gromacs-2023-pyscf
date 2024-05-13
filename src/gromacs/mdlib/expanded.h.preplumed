@@ -38,7 +38,6 @@
 
 #include "gromacs/math/vectypes.h"
 #include "gromacs/mdlib/coupling.h"
-#include "gromacs/utility/basedefinitions.h" /* PLUMED */
 
 struct df_history_t;
 class gmx_ekindata_t;
@@ -47,7 +46,6 @@ struct t_expanded;
 struct t_extmass;
 struct t_inputrec;
 struct t_lambda;
-struct t_mdatoms; /* PLUMED */
 struct t_simtemp;
 class t_state;
 
@@ -69,7 +67,6 @@ int ExpandedEnsembleDynamics(FILE*                               log,
                              df_history_t*                       dfhist,
                              int64_t                             step,
                              rvec*                               v,
-                             real*                               realFepState,  /* PLUMED */
                              int                                 homenr,
                              gmx::ArrayRef<const unsigned short> cTC);
 
@@ -89,8 +86,7 @@ int expandedEnsembleUpdateLambdaState(FILE*                 log,
                                       const gmx_enerdata_t* enerd,
                                       int                   fep_state,
                                       df_history_t*         dfhist,
-                                      int64_t               step,
-                                      real*                 realFepState); /* PLUMED */
+                                      int64_t               step);
 
 void PrintFreeEnergyInfoToFile(FILE*               outfile,
                                const t_lambda*     fep,
