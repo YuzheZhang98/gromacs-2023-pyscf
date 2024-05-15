@@ -98,9 +98,17 @@ private:
      */
     void initCP2KForceEnvironment(const t_commrec& cr);
     void initPython(const t_commrec& cr);
-    void forceRecorder(ForceProviderOutput*      fOutput,
+    /*
+     *this recorder should be put after force is calculated
+     */
+    void frameRecorder(ForceProviderOutput*      fOutput,
                        std::vector<double>       pyscfForce,
                        const ForceProviderInput& fInput);
+    /*
+     * this recorder generates charge, elemental kind, and indeces for
+     * pyscfdriverii, before the first step begins
+     */
+    void initialInfoGenerator(const ForceProviderInput& fInput);
 
     const QMMMParameters& parameters_;
     const LocalAtomSet&   qmAtoms_;
