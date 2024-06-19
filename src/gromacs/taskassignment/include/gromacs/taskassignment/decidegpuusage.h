@@ -279,7 +279,6 @@ bool decideWhetherToUseGpusForBonded(bool              useGpuForNonbonded,
  * \param[in]  haveFrozenAtoms              If this simulation has frozen atoms (see Issue #3920).
  * \param[in]  useModularSimulator          Whether the modular simulator is used
  * \param[in]  doRerun                      It this is a rerun.
- * \param[in]  usePlumed                    If PLUMED is enabled.
  * \param[in]  mdlog                        MD logger.
  *
  * \returns    Whether complete simulation can be run on GPU.
@@ -300,7 +299,6 @@ bool decideWhetherToUseGpuForUpdate(bool                 isDomainDecomposition,
                                     bool                 haveFrozenAtoms,
                                     bool                 useModularSimulator,
                                     bool                 doRerun,
-                                    bool                 usePlumed, /* PLUMED */
                                     const gmx::MDLogger& mdlog);
 
 /*! \brief Decide whether direct GPU communication can be used.

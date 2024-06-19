@@ -86,7 +86,6 @@
 #include "gromacs/mdlib/update.h"
 #include "gromacs/mdlib/vsite.h"
 #include "gromacs/mdrunutility/handlerestart.h"
-#include "gromacs/mdrunutility/multisim.h" /*PLUMED*/
 #include "gromacs/mdrunutility/printtime.h"
 #include "gromacs/mdtypes/checkpointdata.h"
 #include "gromacs/mdtypes/commrec.h"
@@ -117,12 +116,6 @@ using gmx::ArrayRef;
 using gmx::MdrunScheduleWorkload;
 using gmx::RVec;
 using gmx::VirtualSitesHandler;
-
-/* PLUMED */
-#include "../../../Plumed.h"
-extern int    plumedswitch;
-extern plumed plumedmain;
-/* END PLUMED */
 
 //! Utility structure for manipulating states during EM
 typedef struct em_state
@@ -371,7 +364,6 @@ static void init_em(FILE*                fplog,
                     const gmx::MDLogger& mdlog,
                     const char*          title,
                     const t_commrec*     cr,
-                    const gmx_multisim_t *ms, /* PLUMED */
                     const t_inputrec*    ir,
                     gmx::ImdSession*     imdSession,
                     pull_t*              pull_work,
@@ -516,42 +508,6 @@ static void init_em(FILE*                fplog,
     }
 
     calc_shifts(ems->s.box, fr->shift_vec);
-
-    /* PLUMED */
-    if(plumedswitch){
-      if(isMultiSim(ms)) {
-        if(MAIN(cr)) plumed_cmd(plumedmain,"GREX setMPIIntercomm",&ms->mainRanksComm_);
-        if(PAR(cr)){
-          if(haveDDAtomOrdering(*cr)) {
-            plumed_cmd(plumedmain,"GREX setMPIIntracomm",&cr->dd->mpi_comm_all);
-          }else{
-            plumed_cmd(plumedmain,"GREX setMPIIntracomm",&cr->mpi_comm_mysim);
-          }
-        }
-        plumed_cmd(plumedmain,"GREX init",nullptr);
-      }
-      if(PAR(cr)){
-        if(haveDDAtomOrdering(*cr)) {
-          plumed_cmd(plumedmain,"setMPIComm",&cr->dd->mpi_comm_all);
-        }else{
-          plumed_cmd(plumedmain,"setMPIComm",&cr->mpi_comm_mysim);
-        }
-      }
-      plumed_cmd(plumedmain,"setNatoms",top_global.natoms);
-      plumed_cmd(plumedmain,"setMDEngine","gromacs");
-      plumed_cmd(plumedmain,"setLog",fplog);
-      real real_delta_t;
-      real_delta_t=ir->delta_t;
-      plumed_cmd(plumedmain,"setTimestep",&real_delta_t);
-      plumed_cmd(plumedmain,"init",nullptr);
-
-      if(haveDDAtomOrdering(*cr)) {
-        int nat_home = dd_numHomeAtoms(*cr->dd);
-        plumed_cmd(plumedmain,"setAtomsNlocal",&nat_home);
-        plumed_cmd(plumedmain,"setAtomsGatindex",cr->dd->globalAtomIndices.data());
-      }
-    }
-    /* END PLUMED */
 }
 
 //! Finalize the minimization
@@ -1059,22 +1015,6 @@ void EnergyEvaluator::run(em_state_t* ems, rvec mu_tot, tensor vir, tensor pres,
     /* do_force always puts the charge groups in the box and shifts again
      * We do not unshift, so molecules are always whole in congrad.c
      */
-    /* PLUMED */
-    int plumedNeedsEnergy=0;
-    matrix plumed_vir;
-    if(plumedswitch){
-      long int lstep=count; plumed_cmd(plumedmain,"setStepLong",&lstep);
-      plumed_cmd(plumedmain,"setPositions",&ems->s.x[0][0]);
-      plumed_cmd(plumedmain,"setMasses",&mdAtoms->mdatoms()->massT[0]);
-      plumed_cmd(plumedmain,"setCharges",&mdAtoms->mdatoms()->chargeA[0]);
-      plumed_cmd(plumedmain,"setBox",&ems->s.box[0][0]);
-      plumed_cmd(plumedmain,"prepareCalc",nullptr);
-      plumed_cmd(plumedmain,"setForces",&ems->f.view().force()[0][0]);
-      plumed_cmd(plumedmain,"isEnergyNeeded",&plumedNeedsEnergy);
-      clear_mat(plumed_vir);
-      plumed_cmd(plumedmain,"setVirial",&plumed_vir[0][0]);
-    }
-    /* END PLUMED */
     do_force(fplog,
              cr,
              ms,
@@ -1105,20 +1045,6 @@ void EnergyEvaluator::run(em_state_t* ems, rvec mu_tot, tensor vir, tensor pres,
              GMX_FORCE_STATECHANGED | GMX_FORCE_ALLFORCES | GMX_FORCE_VIRIAL | GMX_FORCE_ENERGY
                      | (bNS ? GMX_FORCE_NS : 0),
              DDBalanceRegionHandler(cr));
-
-    /* PLUMED */
-    if(plumedswitch){
-      if(plumedNeedsEnergy) {
-        msmul(force_vir,2.0,plumed_vir);
-        plumed_cmd(plumedmain,"setEnergy",&enerd->term[F_EPOT]);
-        plumed_cmd(plumedmain,"performCalc",nullptr);
-        msmul(plumed_vir,0.5,force_vir);
-      } else {
-        msmul(plumed_vir,0.5,plumed_vir);
-        m_add(force_vir,plumed_vir,force_vir);
-      }
-    }
-    /* END PLUMED */
 
     /* Clear the unused shake virial and pressure */
     clear_mat(shake_vir);
@@ -1385,7 +1311,6 @@ void LegacySimulator::do_cg()
             mdlog,
             CG,
             cr,
-            ms, /* PLUMED */
             inputrec,
             imdSession,
             pull_work,
@@ -2108,7 +2033,6 @@ void LegacySimulator::do_lbfgs()
             mdlog,
             LBFGS,
             cr,
-            ms, /* PLUMED */
             inputrec,
             imdSession,
             pull_work,
@@ -2903,7 +2827,6 @@ void LegacySimulator::do_steep()
             mdlog,
             SD,
             cr,
-            ms, /* PLUMED */
             inputrec,
             imdSession,
             pull_work,
@@ -3243,7 +3166,6 @@ void LegacySimulator::do_nm()
             mdlog,
             NM,
             cr,
-            ms, /* PLUMED */
             inputrec,
             imdSession,
             pull_work,

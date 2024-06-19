@@ -35,8 +35,6 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
     message(FATAL_ERROR "CMake called with the wrong directory; please use the top GROMACS directory (${CMAKE_CURRENT_SOURCE_DIR}/../../)")
 endif()
 
-include(${CMAKE_SOURCE_DIR}/Plumed.cmake)
-
 set(LIBGROMACS_SOURCES)
 
 if (GMX_CLANG_CUDA)
@@ -345,7 +343,6 @@ target_link_libraries(libgromacs
                       $<$<PLATFORM_ID:SunOS>:socket>
                       PUBLIC
                       ${GMX_PUBLIC_LIBRARIES}
-                      ${PLUMED_LOAD}
                       )
 target_link_libraries(libgromacs PRIVATE legacy_api)
 # Dependencies from libgromacs to the modules are set up here, but

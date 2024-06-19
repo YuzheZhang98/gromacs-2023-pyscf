@@ -31,13 +31,6 @@
  * To help us fund GROMACS development, we humbly ask that you cite
  * the research papers on the package. Check out https://www.gromacs.org.
  */
-
-/* PLUMED */
-#include "../../../Plumed.h"
-extern int    plumedswitch;
-extern plumed plumedmain;
-/* END PLUMED */
-
 #include "gmxpre.h"
 
 #include "expanded.h"
@@ -861,8 +854,7 @@ static int ChooseNewLambda(int               nlim,
     starting_fep_state = fep_state;
     lamnew             = fep_state; /* so that there is a default setting -- stays the same */
 
-    // Don't equilibrate weights when using PLUMED
-    if (!plumedswitch || !EWL(expand->elamstats)) /* ignore equilibrating the weights if using WL */
+    if (!EWL(expand->elamstats)) /* ignore equilibrating the weights if using WL */
     {
         if ((expand->lmc_forced_nstart > 0) && (dfhist->n_at_lam[nlim - 1] <= expand->lmc_forced_nstart))
         {
@@ -1177,8 +1169,7 @@ void PrintFreeEnergyInfoToFile(FILE*               outfile,
     if (step % frequency == 0)
     {
         fprintf(outfile, "             MC-lambda information\n");
-        // Ignore Wang-Landau when using plumed
-        if (EWL(expand->elamstats) && (!(dfhist->bEquil)) && !plumedswitch) /* PLUMED */
+        if (EWL(expand->elamstats) && (!(dfhist->bEquil)))
         {
             fprintf(outfile, "  Wang-Landau incrementor is: %11.5g\n", dfhist->wl_delta);
         }
@@ -1230,8 +1221,7 @@ void PrintFreeEnergyInfoToFile(FILE*               outfile,
                     fprintf(outfile, "%9.3f", simtemp->temperatures[ifep]);
                 }
             }
-            // No Wang-Landau when using Plumed
-            if (EWL(expand->elamstats) && (!plumedswitch) /* PLUMED */
+            if (EWL(expand->elamstats)
                 && (!(dfhist->bEquil))) /* if performing WL and still haven't equilibrated */
             {
                 if (expand->elamstats == LambdaWeightCalculation::WL)
@@ -1343,8 +1333,7 @@ int expandedEnsembleUpdateLambdaState(FILE*                 log,
                                       const gmx_enerdata_t* enerd,
                                       int                   fep_state,
                                       df_history_t*         dfhist,
-                                      int64_t               step,
-                                      real*                 realFepState) /* PLUMED */
+                                      int64_t               step)
 {
     real *      pfep_lamee, *scaled_lamee, *weighted_lamee;
     double*     p_k;
@@ -1449,47 +1438,21 @@ int expandedEnsembleUpdateLambdaState(FILE*                 log,
         weighted_lamee[i] -= maxweighted;
     }
 
-    if (plumedswitch && !EWL(expand->elamstats)) /* PLUMED */
+    /* update weights - we decide whether or not to actually do this inside */
+
+    bDoneEquilibrating =
+            UpdateWeights(nlim, expand, dfhist, fep_state, scaled_lamee, weighted_lamee, step);
+    if (bDoneEquilibrating)
     {
-        // Update weights at all lambda states with current values from Plumed.
-        // For acceptance criterion, expanded ensemble is expecting the weight at
-        // lambda i=0 to be zero.
-        real zeroBias = 0;
-        for (i = 0; i < nlim; i++)
+        if (log)
         {
-            *realFepState = i;
-            real bias = 0;
-            plumed_cmd(plumedmain, "prepareCalc", nullptr);
-            plumed_cmd(plumedmain, "performCalcNoForces", nullptr);
-            plumed_cmd(plumedmain, "getBias", &bias);
-            bias /= expand->mc_temp * gmx::c_boltz;
-            if (i == 0)
-            {
-                zeroBias = bias;
-            }
-            dfhist->sum_weights[i] = -bias + zeroBias;
-        }
-        *realFepState = fep_state;
-    }
-    else // Don't update weights using different method when PLUMED is active
-    {
-        /* update weights - we decide whether or not to actually do this inside */
- 
-        bDoneEquilibrating =
-                UpdateWeights(nlim, expand, dfhist, fep_state, scaled_lamee, weighted_lamee, step);
-        if (bDoneEquilibrating)
-        {
-            if (log)
-            {
-                fprintf(log,
-                        "\nStep %" PRId64 ": Weights have equilibrated, using criteria: %s\n",
-                        step,
-                        enumValueToString(expand->elmceq));
-            }
+            fprintf(log,
+                    "\nStep %" PRId64 ": Weights have equilibrated, using criteria: %s\n",
+                    step,
+                    enumValueToString(expand->elmceq));
         }
     }
 
-    // Accept / reject is handled by GROMACS (possibly with PLUMED weights).
     lamnew = ChooseNewLambda(
             nlim, expand, dfhist, fep_state, weighted_lamee, p_k, ir->expandedvals->lmc_seed, step);
 
@@ -1615,13 +1578,12 @@ int ExpandedEnsembleDynamics(FILE*                               log,
                              df_history_t*                       dfhist,
                              int64_t                             step,
                              rvec*                               v,
-                             real*                               realFepState, /* PLUMED */
                              const int                           homenr,
                              gmx::ArrayRef<const unsigned short> cTC)
 /* Note that the state variable is only needed for simulated tempering, not
    Hamiltonian expanded ensemble.  May be able to remove it after integrator refactoring. */
 {
-    const int newLambda = expandedEnsembleUpdateLambdaState(log, &ir, &enerd, fep_state, dfhist, step, realFepState); /* PLUMED */
+    const int newLambda = expandedEnsembleUpdateLambdaState(log, &ir, &enerd, fep_state, dfhist, step);
     // if using simulated tempering, we need to adjust the temperatures
     // only need to change the temperatures if we change the state
     if (ir.bSimTemp && (newLambda != fep_state))

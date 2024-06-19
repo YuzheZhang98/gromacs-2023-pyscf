@@ -1,1 +1,0 @@
-/home/zhang2539/plumed2/lib/plumed/src/lib/Plumed.inc.shared
